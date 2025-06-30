@@ -7,11 +7,18 @@ pub struct WithdrawalRequest {
     pub unlock_time: u64,          // Timestamp when withdrawal can be executed
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StrategyData {
+    pub borrowed: i128,      // Current borrowed amount
+    pub net_impact: i128,    // Current P&L from transfers
+}
+
 // Persistent storage keys
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum DataKey {
-    Strategy(Address),             // Stores net_impact as i128
+    Strategy(Address),             // Stores StrategyData
     WithdrawalRequest(Address),    // Stores WithdrawalRequest
 }
 
@@ -29,6 +36,7 @@ const SHARE_TOKEN: &str = "ShareToken";
 const TOTAL_SHARES: &str = "TotalShares";
 const LOCK_TIME: &str = "LockTime";
 const PENALTY_RATE: &str = "PenaltyRate";
+const MIN_LIQUIDITY_RATE: &str = "MinLiquidityRate";
 const STRATEGIES: &str = "Strategies";
 
 pub fn extend_instance(e: &Env) {
@@ -38,87 +46,103 @@ pub fn extend_instance(e: &Env) {
 }
 
 pub fn get_token(e: &Env) -> Address {
-    e.storage().instance().get(&Symbol::new(e, TOKEN)).unwrap_optimized()
+    e.storage().instance().get::<Symbol, Address>(&Symbol::new(e, TOKEN)).unwrap_optimized()
 }
 
 pub fn set_token(e: &Env, token: &Address) {
-    e.storage().instance().set(&Symbol::new(e, TOKEN), token);
+    e.storage().instance().set::<Symbol, Address>(&Symbol::new(e, TOKEN), token);
 }
 
 pub fn get_share_token(e: &Env) -> Address {
-    e.storage().instance().get(&Symbol::new(e, SHARE_TOKEN)).unwrap_optimized()
+    e.storage().instance().get::<Symbol, Address>(&Symbol::new(e, SHARE_TOKEN)).unwrap_optimized()
 }
 
 pub fn set_share_token(e: &Env, share_token: &Address) {
-    e.storage().instance().set(&Symbol::new(e, SHARE_TOKEN), share_token);
+    e.storage().instance().set::<Symbol, Address>(&Symbol::new(e, SHARE_TOKEN), share_token);
 }
 
 pub fn get_total_shares(e: &Env) -> i128 {
     e.storage()
         .instance()
-        .get(&Symbol::new(e, TOTAL_SHARES))
+        .get::<Symbol, i128>(&Symbol::new(e, TOTAL_SHARES))
         .unwrap_optimized()
 }
 
 pub fn set_total_shares(e: &Env, total_shares: &i128) {
     e.storage()
         .instance()
-        .set(&Symbol::new(e, TOTAL_SHARES), total_shares);
+        .set::<Symbol, i128>(&Symbol::new(e, TOTAL_SHARES), total_shares);
 }
 
 pub fn get_lock_time(e: &Env) -> u64 {
     e.storage()
         .instance()
-        .get(&Symbol::new(e, LOCK_TIME))
+        .get::<Symbol, u64>(&Symbol::new(e, LOCK_TIME))
         .unwrap_optimized()
 }
 
 pub fn set_lock_time(e: &Env, lock_time: &u64) {
     e.storage()
         .instance()
-        .set(&Symbol::new(e, LOCK_TIME), lock_time);
+        .set::<Symbol, u64>(&Symbol::new(e, LOCK_TIME), lock_time);
 }
 
 pub fn get_penalty_rate(e: &Env) -> i128 {
     e.storage()
         .instance()
-        .get(&Symbol::new(e, PENALTY_RATE))
+        .get::<Symbol, i128>(&Symbol::new(e, PENALTY_RATE))
         .unwrap_optimized()
 }
 
 pub fn set_penalty_rate(e: &Env, rate: &i128) {
     e.storage()
         .instance()
-        .set(&Symbol::new(e, PENALTY_RATE), rate);
+        .set::<Symbol, i128>(&Symbol::new(e, PENALTY_RATE), rate);
+}
+
+pub fn get_min_liquidity_rate(e: &Env) -> i128 {
+    e.storage()
+        .instance()
+        .get::<Symbol, i128>(&Symbol::new(e, MIN_LIQUIDITY_RATE))
+        .unwrap_optimized()
+}
+
+pub fn set_min_liquidity_rate(e: &Env, rate: &i128) {
+    e.storage()
+        .instance()
+        .set::<Symbol, i128>(&Symbol::new(e, MIN_LIQUIDITY_RATE), rate);
 }
 
 pub fn get_strategies(e: &Env) -> SorobanVec<Address> {
     e.storage()
         .instance()
-        .get(&Symbol::new(e, STRATEGIES))
+        .get::<Symbol, SorobanVec<Address>>(&Symbol::new(e, STRATEGIES))
         .unwrap_optimized()
 }
 
 pub fn set_strategies(e: &Env, strategies: &SorobanVec<Address>) {
     e.storage()
         .instance()
-        .set(&Symbol::new(e, STRATEGIES), strategies);
+        .set::<Symbol, SorobanVec<Address>>(&Symbol::new(e, STRATEGIES), strategies);
 }
 
-pub fn get_strategy_net_impact(e: &Env, strategy_addr: &Address) -> i128 {
+pub fn get_strategy_data(e: &Env, strategy_addr: &Address) -> StrategyData {
     let key = DataKey::Strategy(strategy_addr.clone());
     e.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD_SHARED, LEDGER_BUMP_SHARED);
     e.storage()
         .persistent()
-        .get::<DataKey, i128>(&key)
-        .unwrap_optimized()
+        .get::<DataKey, StrategyData>(&key)
+        .unwrap_or(StrategyData {
+            borrowed: 0,
+            net_impact: 0,
+        })
 }
 
-pub fn set_strategy_net_impact(e: &Env, strategy_addr: &Address, net_impact: &i128) {
+pub fn set_strategy_data(e: &Env, strategy_addr: &Address, data: &StrategyData) {
     let key = DataKey::Strategy(strategy_addr.clone());
-    e.storage().persistent().set(&key, net_impact);
+    e.storage().persistent().set::<DataKey, StrategyData>(&key, data);
     e.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD_SHARED, LEDGER_BUMP_SHARED);
@@ -137,7 +161,7 @@ pub fn get_withdrawal_request(e: &Env, user: &Address) -> WithdrawalRequest {
 
 pub fn set_withdrawal_request(e: &Env, user: &Address, request: &WithdrawalRequest) {
     let key = DataKey::WithdrawalRequest(user.clone());
-    e.storage().persistent().set(&key, request);
+    e.storage().persistent().set::<DataKey, WithdrawalRequest>(&key, request);
     e.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD_USER, LEDGER_BUMP_USER);
@@ -146,9 +170,4 @@ pub fn set_withdrawal_request(e: &Env, user: &Address, request: &WithdrawalReque
 pub fn remove_withdrawal_request(e: &Env, user: &Address) {
     let key = DataKey::WithdrawalRequest(user.clone());
     e.storage().persistent().remove(&key);
-}
-
-pub fn has_withdrawal_request(e: &Env, user: &Address) -> bool {
-    let key = DataKey::WithdrawalRequest(user.clone());
-    e.storage().persistent().has(&key)
 }

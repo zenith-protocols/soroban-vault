@@ -17,6 +17,20 @@ impl VaultEvents {
         e.events().publish(topics, (receiver, tokens, shares));
     }
 
+    /// Emitted when exact shares are minted by depositing tokens
+    ///
+    /// - topics - `["mint"]`
+    /// - data - `[receiver: Address, shares: i128, tokens: i128]`
+    ///
+    /// ### Arguments
+    /// * receiver - The address receiving the minted shares
+    /// * shares - The exact amount of shares minted
+    /// * tokens - The amount of tokens deposited to mint those shares
+    pub fn mint(e: &Env, receiver: Address, shares: i128, tokens: i128) {
+        let topics = (Symbol::new(e, "mint"),);
+        e.events().publish(topics, (receiver, shares, tokens));
+    }
+
     /// Emitted when a withdrawal is queued
     ///
     /// - topics - `["queue_withdraw"]`
@@ -71,6 +85,34 @@ impl VaultEvents {
     pub fn cancel_withdraw(e: &Env, owner: Address, shares: i128) {
         let topics = (Symbol::new(e, "cancel_withdraw"),);
         e.events().publish(topics, (owner, shares));
+    }
+
+    /// Emitted when a strategy borrows tokens from the vault
+    ///
+    /// - topics - `["borrow"]`
+    /// - data - `[strategy: Address, amount: i128, total_borrowed: i128]`
+    ///
+    /// ### Arguments
+    /// * strategy - The strategy contract address
+    /// * amount - The amount of tokens borrowed
+    /// * total_borrowed - The strategy's total borrowed amount after this borrow
+    pub fn borrow(e: &Env, strategy: Address, amount: i128, total_borrowed: i128) {
+        let topics = (Symbol::new(e, "borrow"),);
+        e.events().publish(topics, (strategy, amount, total_borrowed));
+    }
+
+    /// Emitted when a strategy repays borrowed tokens
+    ///
+    /// - topics - `["repay"]`
+    /// - data - `[strategy: Address, amount: i128, total_borrowed: i128]`
+    ///
+    /// ### Arguments
+    /// * strategy - The strategy contract address
+    /// * amount - The amount of tokens repaid
+    /// * total_borrowed - The strategy's total borrowed amount after this repayment
+    pub fn repay(e: &Env, strategy: Address, amount: i128, total_borrowed: i128) {
+        let topics = (Symbol::new(e, "repay"),);
+        e.events().publish(topics, (strategy, amount, total_borrowed));
     }
 
     /// Emitted when a strategy transfers tokens from the vault

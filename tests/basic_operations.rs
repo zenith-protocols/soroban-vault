@@ -12,7 +12,7 @@ use soroban_sdk::testutils::StellarAssetContract;
 use vault::{VaultContract, VaultContractClient};
 
 mod token_contract_wasm {
-    soroban_sdk::contractimport!(file = "../wasm/soroban_token_contract.wasm");
+    soroban_sdk::contractimport!(file = "../token.wasm");
 }
 
 const SCALAR_7: i128 = 10_000_000;
