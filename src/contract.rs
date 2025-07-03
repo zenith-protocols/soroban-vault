@@ -176,6 +176,7 @@ pub trait Vault {
 impl VaultContract {
     /// Initializes the immutable vault
     ///
+    ///
     /// # Arguments
     /// * `token` - Address of the underlying token contract
     /// * `token_wasm_hash` - WASM hash for deploying the share token contract
@@ -252,6 +253,21 @@ impl Vault for VaultContract {
 
     fn total_assets(e: Env) -> i128 {
         //TODO: Correct implementation get from storage
+        let token = storage::get_token(&e);
+        let token_client = token::Client::new(&e, &token);
+        let vault_balance = token_client.balance(&e.current_contract_address());
+
+        // Add net impacts from all strategies (profits/losses)
+        let strategies = storage::get_strategies(&e);
+        let mut total_strategy_impact = 0i128;
+
+        for strategy in strategies.iter() {
+            let strategy_data = storage::get_strategy_data(&e, &strategy);
+            total_strategy_impact += strategy_data.net_impact;
+        }
+
+        storage::extend_instance(&e);
+        vault_balance + total_strategy_impact
     }
 
     fn get_strategy_data(e: Env, strategy: Address) -> StrategyData {
