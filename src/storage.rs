@@ -2,9 +2,9 @@ use soroban_sdk::{contracttype, Address, Env, Vec as SorobanVec, Symbol, unwrap:
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct WithdrawalRequest {
-    pub shares: i128,              // Shares to be withdrawn
-    pub unlock_time: u64,          // Timestamp when withdrawal can be executed
+pub struct RedemptionRequest {
+    pub shares: i128,              // Shares locked for redemption
+    pub unlock_time: u64,          // Timestamp when redemption can be executed
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,7 +19,7 @@ pub struct StrategyData {
 #[contracttype]
 pub enum DataKey {
     Strategy(Address),             // Stores StrategyData
-    WithdrawalRequest(Address),    // Stores WithdrawalRequest
+    RedemptionRequest(Address),    // Stores RedemptionRequest
 }
 
 const ONE_DAY_LEDGERS: u32 = 17280; // assumes 5s a ledger
@@ -34,6 +34,7 @@ const LEDGER_BUMP_USER: u32 = LEDGER_THRESHOLD_USER + 20 * ONE_DAY_LEDGERS; // ~
 const TOKEN: &str = "Token";
 const SHARE_TOKEN: &str = "ShareToken";
 const TOTAL_SHARES: &str = "TotalShares";
+const TOTAL_TOKENS: &str = "TotalTokens";
 const LOCK_TIME: &str = "LockTime";
 const PENALTY_RATE: &str = "PenaltyRate";
 const MIN_LIQUIDITY_RATE: &str = "MinLiquidityRate";
@@ -72,6 +73,19 @@ pub fn set_total_shares(e: &Env, total_shares: &i128) {
     e.storage()
         .instance()
         .set::<Symbol, i128>(&Symbol::new(e, TOTAL_SHARES), total_shares);
+}
+
+pub fn get_total_tokens(e: &Env) -> i128 {
+    e.storage()
+        .instance()
+        .get::<Symbol, i128>(&Symbol::new(e, TOTAL_TOKENS))
+        .unwrap_optimized()
+}
+
+pub fn set_total_tokens(e: &Env, total_tokens: &i128) {
+    e.storage()
+        .instance()
+        .set::<Symbol, i128>(&Symbol::new(e, TOTAL_TOKENS), total_tokens);
 }
 
 pub fn get_lock_time(e: &Env) -> u64 {
@@ -148,26 +162,31 @@ pub fn set_strategy_data(e: &Env, strategy_addr: &Address, data: &StrategyData) 
         .extend_ttl(&key, LEDGER_THRESHOLD_SHARED, LEDGER_BUMP_SHARED);
 }
 
-pub fn get_withdrawal_request(e: &Env, user: &Address) -> WithdrawalRequest {
-    let key = DataKey::WithdrawalRequest(user.clone());
+pub fn has_redemption_request(e: &Env, user: &Address) -> bool {
+    let key = DataKey::RedemptionRequest(user.clone());
+    e.storage().persistent().has(&key)
+}
+
+pub fn get_redemption_request(e: &Env, user: &Address) -> RedemptionRequest {
+    let key = DataKey::RedemptionRequest(user.clone());
     e.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD_USER, LEDGER_BUMP_USER);
     e.storage()
         .persistent()
-        .get::<DataKey, WithdrawalRequest>(&key)
+        .get::<DataKey, RedemptionRequest>(&key)
         .unwrap_optimized()
 }
 
-pub fn set_withdrawal_request(e: &Env, user: &Address, request: &WithdrawalRequest) {
-    let key = DataKey::WithdrawalRequest(user.clone());
-    e.storage().persistent().set::<DataKey, WithdrawalRequest>(&key, request);
+pub fn set_redemption_request(e: &Env, user: &Address, request: &RedemptionRequest) {
+    let key = DataKey::RedemptionRequest(user.clone());
+    e.storage().persistent().set::<DataKey, RedemptionRequest>(&key, request);
     e.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD_USER, LEDGER_BUMP_USER);
 }
 
-pub fn remove_withdrawal_request(e: &Env, user: &Address) {
-    let key = DataKey::WithdrawalRequest(user.clone());
+pub fn remove_redemption_request(e: &Env, user: &Address) {
+    let key = DataKey::RedemptionRequest(user.clone());
     e.storage().persistent().remove(&key);
 }

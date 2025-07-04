@@ -31,59 +31,60 @@ impl VaultEvents {
         e.events().publish(topics, (receiver, shares, tokens));
     }
 
-    /// Emitted when a withdrawal is queued
+    /// Emitted when a redemption is requested
     ///
-    /// - topics - `["queue_withdraw"]`
+    /// - topics - `["request_redeem"]`
     /// - data - `[owner: Address, shares: i128, unlock_time: u64]`
     ///
     /// ### Arguments
     /// * owner - The address that owns the shares
-    /// * shares - The amount of shares queued for withdrawal
-    /// * unlock_time - The time when withdrawal can be executed
-    pub fn queue_withdraw(e: &Env, owner: Address, shares: i128, unlock_time: u64) {
-        let topics = (Symbol::new(e, "queue_withdraw"),);
+    /// * shares - The amount of shares queued for redemption
+    /// * unlock_time - The time when redemption can be executed
+    pub fn request_redeem(e: &Env, owner: Address, shares: i128, unlock_time: u64) {
+        let topics = (Symbol::new(e, "request_redeem"),);
         e.events().publish(topics, (owner, shares, unlock_time));
     }
 
-    /// Emitted when a queued withdrawal is executed
+    /// Emitted when a queued redemption is executed
     ///
-    /// - topics - `["withdraw"]`
-    /// - data - `[user: Address, shares: i128, tokens: i128]`
+    /// - topics - `["redeem"]`
+    /// - data - `[owner: Address, receiver: Address, shares: i128, tokens: i128]`
     ///
     /// ### Arguments
-    /// * user - The address whose withdrawal is being executed
+    /// * owner - The address whose redemption is being executed
+    /// * receiver - The address receiving the tokens
     /// * shares - The amount of shares burned
-    /// * tokens - The amount of tokens withdrawn
-    pub fn withdraw(e: &Env, user: Address, shares: i128, tokens: i128) {
-        let topics = (Symbol::new(e, "withdraw"),);
-        e.events().publish(topics, (user, shares, tokens));
+    /// * tokens - The amount of tokens redeemed
+    pub fn redeem(e: &Env, owner: Address, receiver: Address, shares: i128, tokens: i128) {
+        let topics = (Symbol::new(e, "redeem"),);
+        e.events().publish(topics, (owner, receiver, shares, tokens));
     }
 
-    /// Emitted when an emergency withdrawal is executed with penalty
+    /// Emitted when an emergency redemption is executed with penalty
     ///
-    /// - topics - `["emergency_withdraw"]`
+    /// - topics - `["emergency_redeem"]`
     /// - data - `[owner: Address, shares: i128, tokens: i128, penalty: i128]`
     ///
     /// ### Arguments
-    /// * owner - The address whose withdrawal is being executed
+    /// * owner - The address whose redemption is being executed
     /// * shares - The amount of shares burned
-    /// * tokens - The amount of tokens withdrawn (after penalty)
+    /// * tokens - The amount of tokens redeemed (after penalty)
     /// * penalty - The penalty amount that stays in the vault
-    pub fn emergency_withdraw(e: &Env, owner: Address, shares: i128, tokens: i128, penalty: i128) {
-        let topics = (Symbol::new(e, "emergency_withdraw"),);
+    pub fn emergency_redeem(e: &Env, owner: Address, shares: i128, tokens: i128, penalty: i128) {
+        let topics = (Symbol::new(e, "emergency_redeem"),);
         e.events().publish(topics, (owner, shares, tokens, penalty));
     }
 
-    /// Emitted when a withdrawal request is cancelled
+    /// Emitted when a redemption request is cancelled
     ///
-    /// - topics - `["cancel_withdraw"]`
+    /// - topics - `["cancel_redeem"]`
     /// - data - `[owner: Address, shares: i128]`
     ///
     /// ### Arguments
-    /// * owner - The address whose withdrawal is being cancelled
+    /// * owner - The address whose redemption is being cancelled
     /// * shares - The amount of shares returned to the owner
-    pub fn cancel_withdraw(e: &Env, owner: Address, shares: i128) {
-        let topics = (Symbol::new(e, "cancel_withdraw"),);
+    pub fn cancel_redeem(e: &Env, owner: Address, shares: i128) {
+        let topics = (Symbol::new(e, "cancel_redeem"),);
         e.events().publish(topics, (owner, shares));
     }
 

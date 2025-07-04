@@ -2,7 +2,7 @@ use soroban_sdk::{contract, contractimpl, contractclient, token, panic_with_erro
 use soroban_fixed_point_math::SorobanFixedPoint;
 
 use crate::{
-    storage::{self, WithdrawalRequest, StrategyData},
+    storage::{self, RedemptionRequest, StrategyData},
     errors::VaultError,
     token::create_share_token,
     events::VaultEvents,
@@ -29,7 +29,6 @@ pub trait Vault {
 
     /// Returns the total number of share tokens in circulation
     ///
-    ///
     /// # Returns
     /// Total share token supply (with 7 decimal places)
     fn total_shares(e: Env) -> i128;
@@ -41,14 +40,14 @@ pub trait Vault {
     /// Total assets under management
     fn total_assets(e: Env) -> i128;
 
-    /// Returns the borrowed amount and net_impact  for a strategy
+    /// Returns the strategy data for a given strategy address
     ///
     /// # Arguments
     /// * `strategy` - Address of the strategy contract
     ///
     /// # Returns
     /// StrategyData containing borrowed amount and net impact
-    fn get_strategy_data(e: Env, strategy: Address) -> StrategyData;
+    fn get_strategy(e: Env, strategy: Address) -> StrategyData;
 
     /// Deposits underlying tokens and mints share tokens to receiver
     ///
@@ -65,7 +64,6 @@ pub trait Vault {
 
     /// Mints exact share tokens by depositing underlying tokens
     ///
-    ///
     /// # Arguments
     /// * `shares` - Exact amount of share tokens to mint (must be > 0)
     /// * `receiver` - Address to receive the minted share tokens
@@ -77,47 +75,50 @@ pub trait Vault {
     /// - `ZeroAmount` if shares <= 0
     fn mint(e: Env, shares: i128, receiver: Address) -> i128;
 
-    /// Queues a withdrawal request by locking share tokens
+    /// Queues a redemption request for exact shares
     ///
     /// # Arguments
-    /// * `shares` - Amount of share tokens to queue for withdrawal (must be > 0)
+    /// * `shares` - Amount of shares to request for redemption (must be > 0)
     /// * `owner` - Address that owns the shares (must authorize transaction)
     ///
     /// # Panics
     /// - `ZeroAmount` if shares <= 0
-    /// - `WithdrawalInProgress` if owner already has a pending withdrawal
+    /// - `WithdrawalInProgress` if owner already has a pending redemption
     /// - `InsufficientShares` if owner doesn't have enough shares
-    fn queue_withdraw(e: Env, shares: i128, owner: Address);
+    fn request_redeem(e: Env, shares: i128, owner: Address);
 
-    /// Executes a queued withdrawal after the delay period (permissionless)
+    /// Executes a queued redemption for exact shares after the delay period
+    /// Burns exact shares and returns whatever assets that equals
     ///
     /// # Arguments
-    /// * `user` - Address that queued the withdrawal
+    /// * `shares` - Exact amount of shares to redeem
+    /// * `receiver` - Address to receive the assets
+    /// * `owner` - Address that queued the redemption
     ///
     /// # Returns
-    /// Amount of underlying tokens transferred to user
+    /// Amount of assets transferred
     ///
     /// # Panics
     /// - `WithdrawalLocked` if unlock time hasn't been reached
-    fn withdraw(e: Env, user: Address) -> i128;
+    fn redeem(e: Env, shares: i128, receiver: Address, owner: Address) -> i128;
 
-    /// Emergency withdrawal with penalty before delay period ends
+    /// Emergency redemption with penalty before delay period ends
     ///
     /// # Arguments
-    /// * `owner` - Address that queued the withdrawal (must authorize transaction)
+    /// * `owner` - Address that queued the redemption (must authorize transaction)
     ///
     /// # Returns
-    /// Amount of underlying tokens transferred to owner (after penalty)
-    fn emergency_withdraw(e: Env, owner: Address) -> i128;
+    /// Amount of underlying assets transferred to owner (after penalty)
+    fn emergency_redeem(e: Env, owner: Address) -> i128;
 
-    /// Cancels a pending withdrawal request
+    /// Cancels a pending redemption request
     ///
     /// # Arguments
-    /// * `owner` - Address that queued the withdrawal (must authorize transaction)
+    /// * `owner` - Address that queued the redemption (must authorize transaction)
     ///
     /// # Panics
-    /// - Panics if no withdrawal request exists for owner
-    fn cancel_withdraw(e: Env, owner: Address);
+    /// - Panics if no redemption request exists for owner
+    fn cancel_redeem(e: Env, owner: Address);
 
     /// Allows a registered strategy to borrow tokens from the vault
     ///
@@ -131,7 +132,7 @@ pub trait Vault {
     /// # Panics
     /// - `ZeroAmount` if amount <= 0
     /// - `UnauthorizedStrategy` if strategy not registered at deployment
-    /// - `InsufficientLiquidity` if vault doesn't have enough liquidity
+    /// - `InsufficientVaultBalance` if vault doesn't have enough liquidity
     fn borrow(e: Env, strategy: Address, amount: i128);
 
     /// Allows a strategy to repay borrowed tokens
@@ -176,14 +177,13 @@ pub trait Vault {
 impl VaultContract {
     /// Initializes the immutable vault
     ///
-    ///
     /// # Arguments
     /// * `token` - Address of the underlying token contract
     /// * `token_wasm_hash` - WASM hash for deploying the share token contract
     /// * `name` - Name for the share token
     /// * `symbol` - Symbol for the share token
     /// * `strategies` - List of strategy contract addresses
-    /// * `lock_time` - Delay in seconds before withdrawals can be executed
+    /// * `lock_time` - Delay in seconds before redemptions can be executed
     /// * `penalty_rate` - Penalty rate in SCALAR_7 format (0-100%)
     /// * `min_liquidity_rate` - Minimum liquidity percentage in SCALAR_7 format (0-100%)
     ///
@@ -216,6 +216,7 @@ impl VaultContract {
         storage::set_token(&e, &token);
         storage::set_share_token(&e, &share_token);
         storage::set_total_shares(&e, &0);
+        storage::set_total_tokens(&e, &0); // Initialize total tokens tracker
         storage::set_lock_time(&e, &lock_time);
         storage::set_penalty_rate(&e, &penalty_rate);
         storage::set_min_liquidity_rate(&e, &min_liquidity_rate);
@@ -252,25 +253,11 @@ impl Vault for VaultContract {
     }
 
     fn total_assets(e: Env) -> i128 {
-        //TODO: Correct implementation get from storage
-        let token = storage::get_token(&e);
-        let token_client = token::Client::new(&e, &token);
-        let vault_balance = token_client.balance(&e.current_contract_address());
-
-        // Add net impacts from all strategies (profits/losses)
-        let strategies = storage::get_strategies(&e);
-        let mut total_strategy_impact = 0i128;
-
-        for strategy in strategies.iter() {
-            let strategy_data = storage::get_strategy_data(&e, &strategy);
-            total_strategy_impact += strategy_data.net_impact;
-        }
-
         storage::extend_instance(&e);
-        vault_balance + total_strategy_impact
+        storage::get_total_tokens(&e)
     }
 
-    fn get_strategy_data(e: Env, strategy: Address) -> StrategyData {
+    fn get_strategy(e: Env, strategy: Address) -> StrategyData {
         storage::extend_instance(&e);
         storage::get_strategy_data(&e, &strategy)
     }
@@ -281,33 +268,31 @@ impl Vault for VaultContract {
             panic_with_error!(e, VaultError::ZeroAmount);
         }
 
-        let token = storage::get_token(&e);
+        let token_addr = storage::get_token(&e);
         let share_token = storage::get_share_token(&e);
 
-        let token_client = token::Client::new(&e, &token);
+        let token_client = token::Client::new(&e, &token_addr);
         let total_shares = storage::get_total_shares(&e);
+        let total_tokens = storage::get_total_tokens(&e);
 
-        // Calculate shares to mint: shares = tokens * (total shares / total assets)
-        let shares = {
-            let total_assets = Self::total_assets(e.clone());
-
-            if total_shares == 0 || total_assets == 0 {
-                // First deposit gets 1:1 ratio
-                tokens
-            } else {
-                let ratio = total_shares.fixed_div_floor(&e, &total_assets, &SCALAR_7);
-                tokens.fixed_mul_floor(&e, &ratio, &SCALAR_7)
-            }
+        // Calculate shares to mint
+        let shares = if total_shares == 0 || total_tokens == 0 {
+            // First deposit gets 1:1 ratio
+            tokens
+        } else {
+            // shares = tokens * (total shares / total tokens)
+            tokens.fixed_mul_floor(&e, &total_shares, &total_tokens)
         };
 
-        // Transfer tokens from caller to vault (receiver authorizes, not vault)
+        // Transfer tokens from receiver to vault
         token_client.transfer(&receiver, &e.current_contract_address(), &tokens);
 
         // Mint shares to receiver
         token::StellarAssetClient::new(&e, &share_token).mint(&receiver, &shares);
 
-        // Update total shares
+        // Update state
         storage::set_total_shares(&e, &(total_shares + shares));
+        storage::set_total_tokens(&e, &(total_tokens + tokens));
 
         // Emit deposit event
         VaultEvents::deposit(&e, receiver.clone(), tokens, shares);
@@ -322,33 +307,31 @@ impl Vault for VaultContract {
             panic_with_error!(e, VaultError::ZeroAmount);
         }
 
-        let token = storage::get_token(&e);
+        let token_addr = storage::get_token(&e);
         let share_token = storage::get_share_token(&e);
 
-        let token_client = token::Client::new(&e, &token);
+        let token_client = token::Client::new(&e, &token_addr);
         let total_shares = storage::get_total_shares(&e);
+        let total_tokens = storage::get_total_tokens(&e);
 
-        // Calculate tokens required: tokens = shares * (total assets / total shares)
-        let tokens = {
-            let total_assets = Self::total_assets(e.clone());
-
-            if total_shares == 0 || total_assets == 0 {
-                // First deposit gets 1:1 ratio
-                shares
-            } else {
-                let ratio = total_assets.fixed_div_ceil(&e, &total_shares, &SCALAR_7);
-                shares.fixed_mul_ceil(&e, &ratio, &SCALAR_7)
-            }
+        // Calculate tokens required
+        let tokens = if total_shares == 0 || total_tokens == 0 {
+            // First deposit gets 1:1 ratio
+            shares
+        } else {
+            // tokens = shares * (total tokens / total shares)
+            shares.fixed_mul_ceil(&e, &total_tokens, &total_shares)
         };
 
-        // Transfer tokens from caller to vault (receiver authorizes, not vault)
+        // Transfer tokens from receiver to vault
         token_client.transfer(&receiver, &e.current_contract_address(), &tokens);
 
         // Mint shares to receiver
         token::StellarAssetClient::new(&e, &share_token).mint(&receiver, &shares);
 
-        // Update total shares
+        // Update state
         storage::set_total_shares(&e, &(total_shares + shares));
+        storage::set_total_tokens(&e, &(total_tokens + tokens));
 
         // Emit mint event
         VaultEvents::mint(&e, receiver.clone(), shares, tokens);
@@ -357,91 +340,126 @@ impl Vault for VaultContract {
         tokens
     }
 
-    fn queue_withdraw(e: Env, shares: i128, owner: Address) {
+    fn request_redeem(e: Env, shares: i128, owner: Address) {
         owner.require_auth();
 
         if shares <= 0 {
             panic_with_error!(e, VaultError::ZeroAmount);
         }
 
+        // Check if user already has a pending request
+        if storage::has_redemption_request(&e, &owner) {
+            panic_with_error!(e, VaultError::WithdrawalInProgress);
+        }
+
         // Verify user has enough shares
         let share_token = storage::get_share_token(&e);
         let share_client = token::Client::new(&e, &share_token);
+
+        // Transfer shares to vault for locking
         share_client.transfer(&owner, &e.current_contract_address(), &shares);
 
-        // Create withdrawal request
+        // Create redemption request
         let lock_time = storage::get_lock_time(&e);
         let unlock_time = e.ledger().timestamp() + lock_time;
-        let request = WithdrawalRequest {
+        let request = RedemptionRequest {
             shares,
             unlock_time,
         };
 
-        storage::set_withdrawal_request(&e, &owner, &request);
+        storage::set_redemption_request(&e, &owner, &request);
 
-        // Emit queue withdraw event
-        VaultEvents::queue_withdraw(&e, owner.clone(), shares, unlock_time);
+        // Emit event
+        VaultEvents::request_redeem(&e, owner.clone(), shares, unlock_time);
 
         storage::extend_instance(&e);
     }
 
-    fn withdraw(e: Env, user: Address) -> i128 {
-        let request = storage::get_withdrawal_request(&e, &user);
+    fn redeem(e: Env, shares: i128, receiver: Address, owner: Address) -> i128 {
+        owner.require_auth();
+
+        let request = storage::get_redemption_request(&e, &owner);
+
+        // Verify unlock time has passed
         if e.ledger().timestamp() < request.unlock_time {
             panic_with_error!(e, VaultError::WithdrawalLocked);
         }
 
-        let token = storage::get_token(&e);
-        let token_client = token::Client::new(&e, &token);
+        // Verify shares match (or are less than) the request
+        if shares > request.shares {
+            panic_with_error!(e, VaultError::InsufficientShares);
+        }
+
+        let token_addr = storage::get_token(&e);
+        let token_client = token::Client::new(&e, &token_addr);
         let share_token = storage::get_share_token(&e);
         let share_client = token::Client::new(&e, &share_token);
+
         let total_shares = storage::get_total_shares(&e);
+        let total_tokens = storage::get_total_tokens(&e);
 
-        // tokens = shares * (total assets / total shares)
-        let total_assets = Self::total_assets(e.clone());
-        let ratio = total_assets.fixed_div_floor(&e, &total_shares, &SCALAR_7);
-        let tokens = request.shares.fixed_mul_floor(&e, &ratio, &SCALAR_7);
+        // Calculate tokens to return
+        // tokens = shares * (total tokens / total shares)
+        let tokens = shares.fixed_mul_floor(&e, &total_tokens, &total_shares);
 
-        share_client.burn(&e.current_contract_address(), &request.shares);
-        token_client.transfer(&e.current_contract_address(), &user, &tokens);
-        storage::set_total_shares(&e, &(total_shares - request.shares));
-        storage::remove_withdrawal_request(&e, &user);
+        // Burn shares from vault
+        share_client.burn(&e.current_contract_address(), &shares);
 
-        // Emit withdraw event
-        VaultEvents::withdraw(&e, user.clone(), request.shares, tokens);
+        // Transfer tokens to receiver
+        token_client.transfer(&e.current_contract_address(), &receiver, &tokens);
+
+        // Update state
+        storage::set_total_shares(&e, &(total_shares - shares));
+        storage::set_total_tokens(&e, &(total_tokens - tokens));
+
+        // Update or remove request
+        if shares == request.shares {
+            storage::remove_redemption_request(&e, &owner);
+        } else {
+            // Partial redemption - update request
+            let updated_request = RedemptionRequest {
+                shares: request.shares - shares,
+                unlock_time: request.unlock_time,
+            };
+            storage::set_redemption_request(&e, &owner, &updated_request);
+
+            // Return remaining locked shares to owner
+            share_client.transfer(&e.current_contract_address(), &owner, &(request.shares - shares));
+        }
+
+        // Emit redeem event
+        VaultEvents::redeem(&e, owner.clone(), receiver.clone(), shares, tokens);
 
         storage::extend_instance(&e);
         tokens
     }
 
-    fn emergency_withdraw(e: Env, owner: Address) -> i128 {
+    fn emergency_redeem(e: Env, owner: Address) -> i128 {
         owner.require_auth();
-        let request = storage::get_withdrawal_request(&e, &owner);
 
-        let token = storage::get_token(&e);
-        let token_client = token::Client::new(&e, &token);
+        let request = storage::get_redemption_request(&e, &owner);
+
+        let token_addr = storage::get_token(&e);
+        let token_client = token::Client::new(&e, &token_addr);
         let share_token = storage::get_share_token(&e);
         let share_client = token::Client::new(&e, &share_token);
+
         let total_shares = storage::get_total_shares(&e);
+        let total_tokens = storage::get_total_tokens(&e);
 
-        // tokens = shares * (total assets / total shares)
-        let total_assets = Self::total_assets(e.clone());
-        let ratio = total_assets.fixed_div_floor(&e, &total_shares, &SCALAR_7);
-        let current_tokens = request.shares.fixed_mul_floor(&e, &ratio, &SCALAR_7);
+        // Calculate current value of shares
+        let current_tokens = request.shares.fixed_mul_floor(&e, &total_tokens, &total_shares);
 
-        // Calculate penalty - inlined logic
-        let current_time = e.ledger().timestamp();
-        let penalty_amount = if current_time >= request.unlock_time {
-            0
+        // Calculate penalty
+        let penalty_amount = if e.ledger().timestamp() >= request.unlock_time {
+            0 // No penalty if already unlocked
         } else {
             let lock_time = storage::get_lock_time(&e);
-            let time_remaining = request.unlock_time - current_time;
+            let time_remaining = request.unlock_time - e.ledger().timestamp();
             let penalty_rate = storage::get_penalty_rate(&e);
 
-            // Linear penalty: current_penalty_rate = max_penalty * (time_remaining / total_lock_time)
+            // Linear penalty: penalty = max_penalty * (time_remaining / total_lock_time)
             let current_penalty_rate = penalty_rate.fixed_mul_floor(&e, &(time_remaining as i128), &(lock_time as i128));
-
-            // Apply penalty to current token value
             current_tokens.fixed_mul_floor(&e, &current_penalty_rate, &SCALAR_7)
         };
 
@@ -451,30 +469,34 @@ impl Vault for VaultContract {
             panic_with_error!(e, VaultError::InvalidAmount);
         }
 
-        // Execute withdrawal - inlined logic (penalty stays in vault)
+        // Execute withdrawal (penalty stays in vault)
         share_client.burn(&e.current_contract_address(), &request.shares);
         token_client.transfer(&e.current_contract_address(), &owner, &withdrawal_amount);
-        storage::set_total_shares(&e, &(total_shares - request.shares));
-        storage::remove_withdrawal_request(&e, &owner);
 
-        // Emit emergency withdraw event
-        VaultEvents::emergency_withdraw(&e, owner.clone(), request.shares, withdrawal_amount, penalty_amount);
+        // Update state (only reduce by withdrawal amount, penalty benefits other users)
+        storage::set_total_shares(&e, &(total_shares - request.shares));
+        storage::set_total_tokens(&e, &(total_tokens - withdrawal_amount));
+        storage::remove_redemption_request(&e, &owner);
+
+        // Emit emergency redeem event
+        VaultEvents::emergency_redeem(&e, owner.clone(), request.shares, withdrawal_amount, penalty_amount);
 
         storage::extend_instance(&e);
         withdrawal_amount
     }
 
-    fn cancel_withdraw(e: Env, owner: Address) {
+    fn cancel_redeem(e: Env, owner: Address) {
         owner.require_auth();
-        let request = storage::get_withdrawal_request(&e, &owner);
+
+        let request = storage::get_redemption_request(&e, &owner);
 
         let share_token = storage::get_share_token(&e);
         token::Client::new(&e, &share_token).transfer(&e.current_contract_address(), &owner, &request.shares);
 
-        storage::remove_withdrawal_request(&e, &owner);
+        storage::remove_redemption_request(&e, &owner);
 
-        // Emit cancel withdraw event
-        VaultEvents::cancel_withdraw(&e, owner.clone(), request.shares);
+        // Emit cancel event
+        VaultEvents::cancel_redeem(&e, owner.clone(), request.shares);
 
         storage::extend_instance(&e);
     }
@@ -492,17 +514,23 @@ impl Vault for VaultContract {
         }
 
         // Check liquidity constraint
-        let token = storage::get_token(&e);
-        let token_client = token::Client::new(&e, &token);
+        let token_addr = storage::get_token(&e);
+        let token_client = token::Client::new(&e, &token_addr);
         let vault_balance = token_client.balance(&e.current_contract_address());
-        let total_assets = Self::total_assets(e.clone());
+        let total_tokens = storage::get_total_tokens(&e);
         let min_liquidity_rate = storage::get_min_liquidity_rate(&e);
 
-        let required_liquidity = total_assets.fixed_mul_ceil(&e, &min_liquidity_rate, &SCALAR_7);
-        let available_liquidity = vault_balance - required_liquidity;
+        // Calculate required liquidity: min_liquidity = total_tokens * min_liquidity_rate
+        let required_liquidity = total_tokens.fixed_mul_ceil(&e, &min_liquidity_rate, &SCALAR_7);
 
+        // Available to borrow = vault_balance - required_liquidity
+        if vault_balance <= required_liquidity {
+            panic_with_error!(e, VaultError::InsufficientVaultBalance);
+        }
+
+        let available_liquidity = vault_balance - required_liquidity;
         if amount > available_liquidity {
-            panic_with_error!(e, VaultError::InsufficientLiquidity);
+            panic_with_error!(e, VaultError::InsufficientVaultBalance);
         }
 
         // Transfer tokens to strategy
@@ -512,6 +540,8 @@ impl Vault for VaultContract {
         let mut strategy_data = storage::get_strategy_data(&e, &strategy);
         strategy_data.borrowed += amount;
         storage::set_strategy_data(&e, &strategy, &strategy_data);
+
+        // Note: total_tokens doesn't change - tokens are still "ours"
 
         // Emit borrow event
         VaultEvents::borrow(&e, strategy.clone(), amount, strategy_data.borrowed);
@@ -537,12 +567,14 @@ impl Vault for VaultContract {
         }
 
         // Transfer tokens from strategy to vault
-        let token = storage::get_token(&e);
-        token::Client::new(&e, &token).transfer(&strategy, &e.current_contract_address(), &amount);
+        let token_addr = storage::get_token(&e);
+        token::Client::new(&e, &token_addr).transfer(&strategy, &e.current_contract_address(), &amount);
 
         // Update strategy borrowed amount
         strategy_data.borrowed -= amount;
         storage::set_strategy_data(&e, &strategy, &strategy_data);
+
+        // Note: total_tokens doesn't change - just moving tokens back
 
         // Emit repay event
         VaultEvents::repay(&e, strategy.clone(), amount, strategy_data.borrowed);
@@ -563,13 +595,17 @@ impl Vault for VaultContract {
         }
 
         // Transfer tokens to strategy
-        let token = storage::get_token(&e);
-        token::Client::new(&e, &token).transfer(&e.current_contract_address(), &strategy, &amount);
+        let token_addr = storage::get_token(&e);
+        token::Client::new(&e, &token_addr).transfer(&e.current_contract_address(), &strategy, &amount);
 
         // Update strategy net impact (negative = net outflow to strategy)
         let mut strategy_data = storage::get_strategy_data(&e, &strategy);
         strategy_data.net_impact -= amount;
         storage::set_strategy_data(&e, &strategy, &strategy_data);
+
+        // Reduce total_tokens as this is a real transfer out
+        let total_tokens = storage::get_total_tokens(&e);
+        storage::set_total_tokens(&e, &(total_tokens - amount));
 
         // Emit transfer to event
         VaultEvents::transfer_to(&e, strategy.clone(), amount, strategy_data.net_impact);
@@ -590,13 +626,17 @@ impl Vault for VaultContract {
         }
 
         // Transfer tokens from strategy to vault
-        let token = storage::get_token(&e);
-        token::Client::new(&e, &token).transfer(&strategy, &e.current_contract_address(), &amount);
+        let token_addr = storage::get_token(&e);
+        token::Client::new(&e, &token_addr).transfer(&strategy, &e.current_contract_address(), &amount);
 
         // Update strategy net impact (positive = net inflow from strategy)
         let mut strategy_data = storage::get_strategy_data(&e, &strategy);
         strategy_data.net_impact += amount;
         storage::set_strategy_data(&e, &strategy, &strategy_data);
+
+        // Increase total_tokens as this is a real transfer in
+        let total_tokens = storage::get_total_tokens(&e);
+        storage::set_total_tokens(&e, &(total_tokens + amount));
 
         // Emit transfer from event
         VaultEvents::transfer_from(&e, strategy.clone(), amount, strategy_data.net_impact);
