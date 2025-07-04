@@ -1,7 +1,6 @@
 use soroban_sdk::{contract, contractimpl, contractclient, Address, Env, Vec, String, BytesN};
 
 use crate::{
-    math::SCALAR_7,
     storage::{self, StrategyData},
     strategy,
     token::create_share_token,
@@ -32,12 +31,12 @@ pub trait Vault {
     /// Total share token supply (with 7 decimal places)
     fn total_shares(e: Env) -> i128;
 
-    /// Returns the total assets under management by the vault
+    /// Returns the total tokens under management by the vault
     /// Including borrowed funds by strategies
     ///
     /// # Returns
-    /// Total assets under management
-    fn total_assets(e: Env) -> i128;
+    /// Total tokens under management
+    fn total_tokens(e: Env) -> i128;
 
     /// Returns the strategy data for a given strategy address
     ///
@@ -47,15 +46,6 @@ pub trait Vault {
     /// # Returns
     /// StrategyData containing borrowed amount and net impact
     fn get_strategy(e: Env, strategy: Address) -> StrategyData;
-
-    /// Returns the net impact of a strategy (profit/loss from transfers)
-    ///
-    /// # Arguments
-    /// * `strategy` - Address of the strategy contract
-    ///
-    /// # Returns
-    /// Net impact: positive = profit, negative = loss
-    fn net_impact(e: Env, strategy: Address) -> i128;
 
     /// Deposits underlying tokens and mints share tokens to receiver
     ///
@@ -257,7 +247,7 @@ impl Vault for VaultContract {
         storage::get_total_shares(&e)
     }
 
-    fn total_assets(e: Env) -> i128 {
+    fn total_tokens(e: Env) -> i128 {
         storage::extend_instance(&e);
         storage::get_total_tokens(&e)
     }
@@ -265,11 +255,6 @@ impl Vault for VaultContract {
     fn get_strategy(e: Env, strategy: Address) -> StrategyData {
         storage::extend_instance(&e);
         storage::get_strategy_data(&e, &strategy)
-    }
-
-    fn net_impact(e: Env, strategy: Address) -> i128 {
-        storage::extend_instance(&e);
-        storage::get_strategy_data(&e, &strategy).net_impact
     }
 
     fn deposit(e: Env, tokens: i128, receiver: Address, owner: Address) -> i128 {
