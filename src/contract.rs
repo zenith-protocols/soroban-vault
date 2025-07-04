@@ -62,28 +62,30 @@ pub trait Vault {
     /// # Arguments
     /// * `tokens` - Amount of underlying tokens to deposit (must be > 0)
     /// * `receiver` - Address to receive the minted share tokens
+    /// * `owner` - Address providing the tokens (must authorize transaction)
     ///
     /// # Returns
     /// Amount of share tokens minted to receiver
     ///
     /// # Panics
     /// - `ZeroAmount` if tokens <= 0
-    fn deposit(e: Env, tokens: i128, receiver: Address) -> i128;
+    fn deposit(e: Env, tokens: i128, receiver: Address, owner: Address) -> i128;
 
     /// Mints exact share tokens by depositing underlying tokens
     ///
     /// # Arguments
     /// * `shares` - Exact amount of share tokens to mint (must be > 0)
     /// * `receiver` - Address to receive the minted share tokens
+    /// * `owner` - Address providing the tokens (must authorize transaction)
     ///
     /// # Returns
     /// Amount of underlying tokens deposited
     ///
     /// # Panics
     /// - `ZeroAmount` if shares <= 0
-    fn mint(e: Env, shares: i128, receiver: Address) -> i128;
+    fn mint(e: Env, shares: i128, receiver: Address, owner: Address) -> i128;
 
-    /// Queues a redemption request for exact shares
+    /// Requests a redemption for exact shares
     ///
     /// # Arguments
     /// * `shares` - Amount of shares to request for redemption (must be > 0)
@@ -93,38 +95,40 @@ pub trait Vault {
     /// - `ZeroAmount` if shares <= 0
     /// - `WithdrawalInProgress` if owner already has a pending redemption
     /// - `InsufficientShares` if owner doesn't have enough shares
-    fn queue_withdraw(e: Env, shares: i128, owner: Address);
+    fn request_redeem(e: Env, shares: i128, owner: Address);
 
-    /// Executes a queued redemption after the delay period
+    /// Executes a redemption request after the delay period
     /// Burns all queued shares and returns the corresponding assets
     ///
     /// # Arguments
-    /// * `owner` - Address that queued the redemption (must authorize transaction)
+    /// * `receiver` - Address to receive the underlying assets
+    /// * `owner` - Address that requested the redemption (must authorize transaction)
     ///
     /// # Returns
-    /// Amount of underlying assets transferred to owner
+    /// Amount of underlying assets transferred to receiver
     ///
     /// # Panics
     /// - `WithdrawalLocked` if unlock time hasn't been reached
-    fn withdraw(e: Env, owner: Address) -> i128;
+    fn redeem(e: Env, receiver: Address, owner: Address) -> i128;
 
     /// Emergency redemption with penalty before delay period ends
     ///
     /// # Arguments
-    /// * `owner` - Address that queued the redemption (must authorize transaction)
+    /// * `receiver` - Address to receive the underlying assets
+    /// * `owner` - Address that requested the redemption (must authorize transaction)
     ///
     /// # Returns
-    /// Amount of underlying assets transferred to owner (after penalty)
-    fn emergency_redeem(e: Env, owner: Address) -> i128;
+    /// Amount of underlying assets transferred to receiver (after penalty)
+    fn emergency_redeem(e: Env, receiver: Address, owner: Address) -> i128;
 
     /// Cancels a pending redemption request
     ///
     /// # Arguments
-    /// * `owner` - Address that queued the redemption (must authorize transaction)
+    /// * `owner` - Address that requested the redemption (must authorize transaction)
     ///
     /// # Panics
     /// - Panics if no redemption request exists for owner
-    fn cancel_withdraw(e: Env, owner: Address);
+    fn cancel_redeem(e: Env, owner: Address);
 
     /// Allows a registered strategy to borrow tokens from the vault
     ///
@@ -268,43 +272,41 @@ impl Vault for VaultContract {
         storage::get_strategy_data(&e, &strategy).net_impact
     }
 
-    fn deposit(e: Env, tokens: i128, receiver: Address) -> i128 {
-        receiver.require_auth();
-        let result = vault::deposit(&e, tokens, &receiver);
+    fn deposit(e: Env, tokens: i128, receiver: Address, owner: Address) -> i128 {
+        owner.require_auth();
+        let result = vault::deposit(&e, tokens, &receiver, &owner);
         storage::extend_instance(&e);
         result
     }
 
-    fn mint(e: Env, shares: i128, receiver: Address) -> i128 {
-        receiver.require_auth();
-        let result = vault::mint(&e, shares, &receiver);
+    fn mint(e: Env, shares: i128, receiver: Address, owner: Address) -> i128 {
+        owner.require_auth();
+        let result = vault::mint(&e, shares, &receiver, &owner);
         storage::extend_instance(&e);
         result
     }
 
-    fn queue_withdraw(e: Env, shares: i128, owner: Address) {
+    fn request_redeem(e: Env, shares: i128, owner: Address) {
         owner.require_auth();
         vault::request_redeem(&e, shares, &owner);
         storage::extend_instance(&e);
     }
 
-    fn withdraw(e: Env, owner: Address) -> i128 {
+    fn redeem(e: Env, receiver: Address, owner: Address) -> i128 {
         owner.require_auth();
-        // Get request to determine shares
-        let request = storage::get_redemption_request(&e, &owner);
-        let result = vault::redeem(&e, request.shares, &owner, &owner);
+        let result = vault::redeem(&e, &receiver, &owner);
         storage::extend_instance(&e);
         result
     }
 
-    fn emergency_redeem(e: Env, owner: Address) -> i128 {
+    fn emergency_redeem(e: Env, receiver: Address, owner: Address) -> i128 {
         owner.require_auth();
-        let result = vault::emergency_redeem(&e, &owner);
+        let result = vault::emergency_redeem(&e, &receiver, &owner);
         storage::extend_instance(&e);
         result
     }
 
-    fn cancel_withdraw(e: Env, owner: Address) {
+    fn cancel_redeem(e: Env, owner: Address) {
         owner.require_auth();
         vault::cancel_redeem(&e, &owner);
         storage::extend_instance(&e);

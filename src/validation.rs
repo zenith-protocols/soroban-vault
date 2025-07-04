@@ -8,7 +8,7 @@ use crate::{
 /// Validates that an amount is positive (greater than zero)
 pub fn require_positive_amount(env: &Env, amount: i128) {
     if amount <= 0 {
-        panic_with_error!(env, VaultError::ZeroAmount);
+        panic_with_error!(env, VaultError::InvalidAmount);
     }
 }
 
@@ -40,14 +40,7 @@ pub fn require_sufficient_liquidity(env: &Env, requested_amount: i128, vault_bal
 /// Validates that a user doesn't have an existing redemption request
 pub fn require_no_pending_redemption(env: &Env, user: &Address) {
     if storage::has_redemption_request(env, user) {
-        panic_with_error!(env, VaultError::WithdrawalInProgress);
-    }
-}
-
-/// Validates that shares amount doesn't exceed request amount
-pub fn require_shares_within_request(env: &Env, shares: i128, request_shares: i128) {
-    if shares > request_shares {
-        panic_with_error!(env, VaultError::InsufficientShares);
+        panic_with_error!(env, VaultError::RedemptionInProgress);
     }
 }
 
@@ -61,7 +54,7 @@ pub fn validate_rate(env: &Env, rate: i128) {
 /// Validates that a redemption can be executed (unlock time passed)
 pub fn require_redemption_unlocked(env: &Env, unlock_time: u64) {
     if env.ledger().timestamp() < unlock_time {
-        panic_with_error!(env, VaultError::WithdrawalLocked);
+        panic_with_error!(env, VaultError::RedemptionLocked);
     }
 }
 

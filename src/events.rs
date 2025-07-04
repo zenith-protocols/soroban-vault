@@ -6,29 +6,31 @@ impl VaultEvents {
     /// Emitted when tokens are deposited into the vault
     ///
     /// - topics - `["deposit"]`
-    /// - data - `[receiver: Address, tokens: i128, shares: i128]`
+    /// - data - `[owner: Address, receiver: Address, shares: i128, tokens: i128]`
     ///
     /// ### Arguments
+    /// * owner - The address providing the tokens
     /// * receiver - The address receiving the minted shares
-    /// * tokens - The amount of tokens deposited
     /// * shares - The amount of shares minted
-    pub fn deposit(e: &Env, receiver: Address, tokens: i128, shares: i128) {
+    /// * tokens - The amount of tokens deposited
+    pub fn deposit(e: &Env, owner: Address, receiver: Address, shares: i128, tokens: i128) {
         let topics = (Symbol::new(e, "deposit"),);
-        e.events().publish(topics, (receiver, tokens, shares));
+        e.events().publish(topics, (owner, receiver, shares, tokens));
     }
 
     /// Emitted when exact shares are minted by depositing tokens
     ///
     /// - topics - `["mint"]`
-    /// - data - `[receiver: Address, shares: i128, tokens: i128]`
+    /// - data - `[owner: Address, receiver: Address, shares: i128, tokens: i128]`
     ///
     /// ### Arguments
+    /// * owner - The address providing the tokens
     /// * receiver - The address receiving the minted shares
     /// * shares - The exact amount of shares minted
     /// * tokens - The amount of tokens deposited to mint those shares
-    pub fn mint(e: &Env, receiver: Address, shares: i128, tokens: i128) {
+    pub fn mint(e: &Env, owner: Address, receiver: Address, shares: i128, tokens: i128) {
         let topics = (Symbol::new(e, "mint"),);
-        e.events().publish(topics, (receiver, shares, tokens));
+        e.events().publish(topics, (owner, receiver, shares, tokens));
     }
 
     /// Emitted when a redemption is requested
@@ -63,16 +65,17 @@ impl VaultEvents {
     /// Emitted when an emergency redemption is executed with penalty
     ///
     /// - topics - `["emergency_redeem"]`
-    /// - data - `[owner: Address, shares: i128, tokens: i128, penalty: i128]`
+    /// - data - `[owner: Address, receiver: Address, shares: i128, tokens: i128, penalty: i128]`
     ///
     /// ### Arguments
     /// * owner - The address whose redemption is being executed
+    /// * receiver - The address receiving the tokens
     /// * shares - The amount of shares burned
     /// * tokens - The amount of tokens redeemed (after penalty)
     /// * penalty - The penalty amount that stays in the vault
-    pub fn emergency_redeem(e: &Env, owner: Address, shares: i128, tokens: i128, penalty: i128) {
+    pub fn emergency_redeem(e: &Env, owner: Address, receiver: Address, shares: i128, tokens: i128, penalty: i128) {
         let topics = (Symbol::new(e, "emergency_redeem"),);
-        e.events().publish(topics, (owner, shares, tokens, penalty));
+        e.events().publish(topics, (owner, receiver, shares, tokens, penalty));
     }
 
     /// Emitted when a redemption request is cancelled

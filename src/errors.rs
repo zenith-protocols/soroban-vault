@@ -4,18 +4,9 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum VaultError {
-    // Amount validation errors
-    ZeroAmount = 4041,
-    InsufficientShares = 4042,
-    InvalidAmount = 4043,
-
-    // Vault capacity errors
-    InsufficientVaultBalance = 4045,
-
-    // Withdrawal errors
-    WithdrawalInProgress = 4046,
-    WithdrawalLocked = 4047,
-
-    // Strategy errors
-    UnauthorizedStrategy = 4048,
+    InvalidAmount = 4041,
+    InsufficientVaultBalance = 4042,
+    RedemptionInProgress = 4043,
+    RedemptionLocked = 4044,
+    UnauthorizedStrategy = 4045,
 }
