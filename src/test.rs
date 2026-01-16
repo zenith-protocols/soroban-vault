@@ -6,7 +6,7 @@ use soroban_sdk::{
     Address, Env, String, Vec,
 };
 
-use crate::{VaultContract, VaultContractClient};
+use crate::{StrategyVaultContract, VaultContractClient};
 
 const SCALAR_7: i128 = 10_000_000;
 const LOCK_TIME: u64 = 300;
@@ -26,7 +26,7 @@ fn setup_test<'a>() -> (Env, VaultContractClient<'a>, Address, Address, Address)
     // Deploy vault
     let strategies = Vec::from_array(&env, [strategy.clone()]);
     let vault_address = env.register(
-        VaultContract,
+        StrategyVaultContract,
         (
             String::from_str(&env, "Vault Shares"),
             String::from_str(&env, "vTKN"),

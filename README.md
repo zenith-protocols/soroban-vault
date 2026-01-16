@@ -1,4 +1,4 @@
-# Soroban Vault
+# Strategy Vault
 
 ERC-4626 compliant tokenized vault built on [OpenZeppelin Stellar Contracts](https://github.com/OpenZeppelin/stellar-contracts) with deposit-based locking and strategy integration.
 
@@ -6,23 +6,7 @@ ERC-4626 compliant tokenized vault built on [OpenZeppelin Stellar Contracts](htt
 
 ### Deposit Lock
 
-Users must wait `lock_time` seconds after their last deposit before withdrawing or redeeming shares. This prevents atomic arbitrage attacks where an attacker could:
-
-1. Deposit into the vault
-2. Trigger a profitable strategy action in the same transaction
-3. Immediately withdraw with the profits
-
-By enforcing a time delay, arbitrageurs cannot exploit price movements within a single transaction. A short lock time of 15 minutes is recommended - long enough to prevent atomic exploitation while minimizing inconvenience for legitimate users.
-
-### Transfer Restriction
-
-Locked users cannot transfer their shares. This closes an exploit where:
-
-1. Account A deposits funds (becomes locked)
-2. Account A transfers shares to Account B
-3. Account B (not locked) immediately withdraws
-
-By blocking transfers while locked, users cannot bypass the time-lock by moving shares to another account. Users who receive shares via transfer (without depositing) are not locked and can withdraw immediately.
+Users must wait `lock_time` seconds after their last deposit before withdrawing, redeeming, or transferring shares. This prevents atomic arbitrage attacks by enforcing a time delay between deposits and exits. A short lock time (e.g., 15 minutes) is recommended.
 
 ### Strategy Integration
 

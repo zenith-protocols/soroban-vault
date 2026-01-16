@@ -16,10 +16,10 @@ use crate::{
 };
 
 #[contract]
-pub struct VaultContract;
+pub struct StrategyVaultContract;
 
 #[contractimpl]
-impl VaultContract {
+impl StrategyVaultContract {
     /// Initializes the vault
     ///
     /// # Arguments
@@ -88,7 +88,7 @@ impl VaultContract {
 
 // Implement FungibleToken trait for share token functionality
 #[contractimpl(contracttrait)]
-impl FungibleToken for VaultContract {
+impl FungibleToken for StrategyVaultContract {
     type ContractType = Vault;
 
     /// Override: Block transfer if sender is locked
@@ -111,7 +111,7 @@ impl FungibleToken for VaultContract {
 // Implement FungibleVault trait for ERC-4626 functionality
 // Override deposit/mint to track timestamps, and redeem/withdraw to check lock
 #[contractimpl(contracttrait)]
-impl FungibleVault for VaultContract {
+impl FungibleVault for StrategyVaultContract {
     /// Override: Track deposit timestamp for the receiver (who gets the shares)
     fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         let shares = Vault::deposit(e, assets, receiver.clone(), from, operator);
