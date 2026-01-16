@@ -1,98 +1,99 @@
-use soroban_sdk::{token, Address, Env};
-use crate::{
-    events::VaultEvents,
-    storage,
-    validation,
-};
+//! Strategy integration and custom vault extensions
 
-pub fn borrow(env: &Env, strategy: &Address, amount: i128) {
-    validation::require_positive_amount(env, amount);
-    validation::require_authorized_strategy(env, strategy);
+use soroban_sdk::{contracterror, contractevent, panic_with_error, token, Address, Env};
+use stellar_tokens::vault::Vault;
 
-    // Get token client once
-    let token = storage::get_token(env);
-    let token_client = token::Client::new(env, &token);
-    let vault_address = env.current_contract_address();
+use crate::storage;
 
-    // Check liquidity
-    let vault_balance = token_client.balance(&vault_address);
-    validation::require_sufficient_liquidity(env, amount, vault_balance);
-
-    // Transfer tokens
-    token_client.transfer(&vault_address, strategy, &amount);
-
-    // Update strategy data
-    let mut strategy_data = storage::get_strategy_data(env, strategy);
-    strategy_data.borrowed += amount;
-    storage::set_strategy_data(env, strategy, &strategy_data);
-
-    // Emit event
-    VaultEvents::borrow(env, strategy.clone(), amount, strategy_data.borrowed);
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum StrategyVaultError {
+    InvalidAmount = 420,
+    SharesLocked = 421,
+    UnauthorizedStrategy = 422,
+}
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyWithdraw {
+    #[topic]
+    pub strategy: Address,
+    pub amount: i128,
+    pub new_net_impact: i128,
 }
 
-pub fn repay(env: &Env, strategy: &Address, amount: i128) {
-    validation::require_positive_amount(env, amount);
-    validation::require_authorized_strategy(env, strategy);
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyDeposit {
+    #[topic]
+    pub strategy: Address,
+    pub amount: i128,
+    pub new_net_impact: i128,
+}
+pub struct StrategyVault;
 
-    // Get and validate strategy data
-    let mut strategy_data = storage::get_strategy_data(env, strategy);
-    validation::require_valid_repayment(env, amount, strategy_data.borrowed);
+impl StrategyVault {
+    /// Returns true if user's shares are currently locked
+    /// Users with no deposit history are NOT locked (they received shares via transfer)
+    pub fn is_locked(e: &Env, user: &Address) -> bool {
+        let Some(last_deposit_time) = storage::get_last_deposit_time(e, user) else {
+            return false; // No deposit history = not locked (received via transfer)
+        };
+        let unlock_time = last_deposit_time.saturating_add(storage::get_lock_time(e));
+        e.ledger().timestamp() < unlock_time
+    }
 
-    // Transfer tokens
-    let token = storage::get_token(env);
-    let token_client = token::Client::new(env, &token);
-    token_client.transfer(strategy, &env.current_contract_address(), &amount);
+    /// Strategy withdraws tokens from the vault
+    /// This decreases total_assets and thus the share price
+    pub fn withdraw(env: &Env, strategy: &Address, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, StrategyVaultError::InvalidAmount);
+        }
+        if !storage::get_strategies(env).contains(strategy) {
+            panic_with_error!(env, StrategyVaultError::UnauthorizedStrategy);
+        }
 
-    // Update strategy data
-    strategy_data.borrowed -= amount;
-    storage::set_strategy_data(env, strategy, &strategy_data);
+        let asset = Vault::query_asset(env);
+        let token_client = token::Client::new(env, &asset);
 
-    // Emit event
-    VaultEvents::repay(env, strategy.clone(), amount, strategy_data.borrowed);
+        // Transfer tokens from vault to strategy
+        token_client.transfer(&env.current_contract_address(), strategy, &amount);
+
+        // Update strategy net impact tracking
+        let net_impact = storage::get_strategy_net_impact(env, strategy) - amount;
+        storage::set_strategy_net_impact(env, strategy, net_impact);
+
+        emit_strategy_withdraw(env, strategy.clone(), amount, net_impact);
+    }
+
+    /// Strategy deposits tokens to the vault
+    /// This increases total_assets and thus the share price
+    pub fn deposit(env: &Env, strategy: &Address, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, StrategyVaultError::InvalidAmount);
+        }
+        if !storage::get_strategies(env).contains(strategy) {
+            panic_with_error!(env, StrategyVaultError::UnauthorizedStrategy);
+        }
+
+        let asset = Vault::query_asset(env);
+        let token_client = token::Client::new(env, &asset);
+
+        // Transfer tokens from strategy to vault
+        token_client.transfer(strategy, &env.current_contract_address(), &amount);
+
+        // Update strategy net impact tracking
+        let net_impact = storage::get_strategy_net_impact(env, strategy) + amount;
+        storage::set_strategy_net_impact(env, strategy, net_impact);
+
+        emit_strategy_deposit(env, strategy.clone(), amount, net_impact);
+    }
 }
 
-pub fn transfer_to(env: &Env, strategy: &Address, amount: i128) {
-    // Validate
-    validation::require_positive_amount(env, amount);
-    validation::require_authorized_strategy(env, strategy);
-
-    // Transfer tokens
-    let token = storage::get_token(env);
-    let token_client = token::Client::new(env, &token);
-    token_client.transfer(&env.current_contract_address(), strategy, &amount);
-
-    // Update strategy net impact
-    let mut strategy_data = storage::get_strategy_data(env, strategy);
-    strategy_data.net_impact -= amount;
-    storage::set_strategy_data(env, strategy, &strategy_data);
-
-    // Update total tokens
-    let total_tokens = storage::get_total_tokens(env);
-    storage::set_total_tokens(env, &(total_tokens - amount));
-
-    // Emit event
-    VaultEvents::transfer_to(env, strategy.clone(), amount, strategy_data.net_impact);
+fn emit_strategy_withdraw(e: &Env, strategy: Address, amount: i128, new_net_impact: i128) {
+    StrategyWithdraw { strategy, amount, new_net_impact }.publish(e);
 }
 
-pub fn transfer_from(env: &Env, strategy: &Address, amount: i128) {
-    // Validate
-    validation::require_positive_amount(env, amount);
-    validation::require_authorized_strategy(env, strategy);
-
-    // Transfer tokens
-    let token = storage::get_token(env);
-    let token_client = token::Client::new(env, &token);
-    token_client.transfer(strategy, &env.current_contract_address(), &amount);
-
-    // Update strategy net impact
-    let mut strategy_data = storage::get_strategy_data(env, strategy);
-    strategy_data.net_impact += amount;
-    storage::set_strategy_data(env, strategy, &strategy_data);
-
-    // Update total tokens
-    let total_tokens = storage::get_total_tokens(env);
-    storage::set_total_tokens(env, &(total_tokens + amount));
-
-    // Emit event
-    VaultEvents::transfer_from(env, strategy.clone(), amount, strategy_data.net_impact);
+fn emit_strategy_deposit(e: &Env, strategy: Address, amount: i128, new_net_impact: i128) {
+    StrategyDeposit { strategy, amount, new_net_impact }.publish(e);
 }

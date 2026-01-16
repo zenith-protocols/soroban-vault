@@ -1,192 +1,81 @@
-use soroban_sdk::{contracttype, Address, Env, Vec as SorobanVec, Symbol, unwrap::UnwrapOptimized};
+use soroban_sdk::{contracttype, Address, Env, Vec as SorobanVec, unwrap::UnwrapOptimized};
+use stellar_tokens::fungible::{INSTANCE_EXTEND_AMOUNT, INSTANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT, BALANCE_TTL_THRESHOLD};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct RedemptionRequest {
-    pub shares: i128,              // Shares locked for redemption
-    pub unlock_time: u64,          // Timestamp when redemption can be executed
+pub enum StorageKey {
+    LockTime,
+    Strategies,
+    Strategy(Address),
+    LastDepositTime(Address),
 }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct StrategyData {
-    pub borrowed: i128,      // Current borrowed amount
-    pub net_impact: i128,    // Current P&L from transfers
-}
-
-// Persistent storage keys
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum DataKey {
-    Strategy(Address),             // Stores StrategyData
-    RedemptionRequest(Address),    // Stores RedemptionRequest
-}
-
-const ONE_DAY_LEDGERS: u32 = 17280; // assumes 5s a ledger
-const LEDGER_THRESHOLD_INSTANCE: u32 = ONE_DAY_LEDGERS * 30; // ~ 30 days
-const LEDGER_BUMP_INSTANCE: u32 = LEDGER_THRESHOLD_INSTANCE + ONE_DAY_LEDGERS; // ~ 31 days
-const LEDGER_THRESHOLD_SHARED: u32 = ONE_DAY_LEDGERS * 45; // ~ 45 days
-const LEDGER_BUMP_SHARED: u32 = LEDGER_THRESHOLD_SHARED + ONE_DAY_LEDGERS; // ~ 46 days
-const LEDGER_THRESHOLD_USER: u32 = ONE_DAY_LEDGERS * 100; // ~ 100 days
-const LEDGER_BUMP_USER: u32 = LEDGER_THRESHOLD_USER + 20 * ONE_DAY_LEDGERS; // ~ 120 days
-
-// Instance storage key strings
-const TOKEN: &str = "Token";
-const SHARE_TOKEN: &str = "ShareToken";
-const TOTAL_SHARES: &str = "TotalShares";
-const TOTAL_TOKENS: &str = "TotalTokens";
-const LOCK_TIME: &str = "LockTime";
-const PENALTY_RATE: &str = "PenaltyRate";
-const MIN_LIQUIDITY_RATE: &str = "MinLiquidityRate";
-const STRATEGIES: &str = "Strategies";
 
 pub fn extend_instance(e: &Env) {
     e.storage()
         .instance()
-        .extend_ttl(LEDGER_THRESHOLD_INSTANCE, LEDGER_BUMP_INSTANCE);
-}
-
-pub fn get_token(e: &Env) -> Address {
-    e.storage().instance().get::<Symbol, Address>(&Symbol::new(e, TOKEN)).unwrap_optimized()
-}
-
-pub fn set_token(e: &Env, token: &Address) {
-    e.storage().instance().set::<Symbol, Address>(&Symbol::new(e, TOKEN), token);
-}
-
-pub fn get_share_token(e: &Env) -> Address {
-    e.storage().instance().get::<Symbol, Address>(&Symbol::new(e, SHARE_TOKEN)).unwrap_optimized()
-}
-
-pub fn set_share_token(e: &Env, share_token: &Address) {
-    e.storage().instance().set::<Symbol, Address>(&Symbol::new(e, SHARE_TOKEN), share_token);
-}
-
-pub fn get_total_shares(e: &Env) -> i128 {
-    e.storage()
-        .instance()
-        .get::<Symbol, i128>(&Symbol::new(e, TOTAL_SHARES))
-        .unwrap_optimized()
-}
-
-pub fn set_total_shares(e: &Env, total_shares: &i128) {
-    e.storage()
-        .instance()
-        .set::<Symbol, i128>(&Symbol::new(e, TOTAL_SHARES), total_shares);
-}
-
-pub fn get_total_tokens(e: &Env) -> i128 {
-    e.storage()
-        .instance()
-        .get::<Symbol, i128>(&Symbol::new(e, TOTAL_TOKENS))
-        .unwrap_optimized()
-}
-
-pub fn set_total_tokens(e: &Env, total_tokens: &i128) {
-    e.storage()
-        .instance()
-        .set::<Symbol, i128>(&Symbol::new(e, TOTAL_TOKENS), total_tokens);
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_EXTEND_AMOUNT);
 }
 
 pub fn get_lock_time(e: &Env) -> u64 {
     e.storage()
         .instance()
-        .get::<Symbol, u64>(&Symbol::new(e, LOCK_TIME))
+        .get::<StorageKey, u64>(&StorageKey::LockTime)
         .unwrap_optimized()
 }
 
 pub fn set_lock_time(e: &Env, lock_time: &u64) {
     e.storage()
         .instance()
-        .set::<Symbol, u64>(&Symbol::new(e, LOCK_TIME), lock_time);
-}
-
-pub fn get_penalty_rate(e: &Env) -> i128 {
-    e.storage()
-        .instance()
-        .get::<Symbol, i128>(&Symbol::new(e, PENALTY_RATE))
-        .unwrap_optimized()
-}
-
-pub fn set_penalty_rate(e: &Env, rate: &i128) {
-    e.storage()
-        .instance()
-        .set::<Symbol, i128>(&Symbol::new(e, PENALTY_RATE), rate);
-}
-
-pub fn get_min_liquidity_rate(e: &Env) -> i128 {
-    e.storage()
-        .instance()
-        .get::<Symbol, i128>(&Symbol::new(e, MIN_LIQUIDITY_RATE))
-        .unwrap_optimized()
-}
-
-pub fn set_min_liquidity_rate(e: &Env, rate: &i128) {
-    e.storage()
-        .instance()
-        .set::<Symbol, i128>(&Symbol::new(e, MIN_LIQUIDITY_RATE), rate);
+        .set::<StorageKey, u64>(&StorageKey::LockTime, lock_time);
 }
 
 pub fn get_strategies(e: &Env) -> SorobanVec<Address> {
     e.storage()
         .instance()
-        .get::<Symbol, SorobanVec<Address>>(&Symbol::new(e, STRATEGIES))
+        .get::<StorageKey, SorobanVec<Address>>(&StorageKey::Strategies)
         .unwrap_optimized()
 }
 
 pub fn set_strategies(e: &Env, strategies: &SorobanVec<Address>) {
     e.storage()
         .instance()
-        .set::<Symbol, SorobanVec<Address>>(&Symbol::new(e, STRATEGIES), strategies);
+        .set::<StorageKey, SorobanVec<Address>>(&StorageKey::Strategies, strategies);
 }
 
-pub fn get_strategy_data(e: &Env, strategy_addr: &Address) -> StrategyData {
-    let key = DataKey::Strategy(strategy_addr.clone());
+pub fn get_strategy_net_impact(e: &Env, strategy: &Address) -> i128 {
+    let key = StorageKey::Strategy(strategy.clone());
     e.storage()
         .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD_SHARED, LEDGER_BUMP_SHARED);
+        .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
     e.storage()
         .persistent()
-        .get::<DataKey, StrategyData>(&key)
-        .unwrap_or(StrategyData {
-            borrowed: 0,
-            net_impact: 0,
-        })
+        .get::<StorageKey, i128>(&key)
+        .unwrap_or(0)
 }
 
-pub fn set_strategy_data(e: &Env, strategy_addr: &Address, data: &StrategyData) {
-    let key = DataKey::Strategy(strategy_addr.clone());
-    e.storage().persistent().set::<DataKey, StrategyData>(&key, data);
+pub fn set_strategy_net_impact(e: &Env, strategy: &Address, net_impact: i128) {
+    let key = StorageKey::Strategy(strategy.clone());
+    e.storage().persistent().set::<StorageKey, i128>(&key, &net_impact);
     e.storage()
         .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD_SHARED, LEDGER_BUMP_SHARED);
+        .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
 }
 
-pub fn has_redemption_request(e: &Env, user: &Address) -> bool {
-    let key = DataKey::RedemptionRequest(user.clone());
-    e.storage().persistent().has(&key)
+pub fn get_last_deposit_time(e: &Env, user: &Address) -> Option<u64> {
+    let key = StorageKey::LastDepositTime(user.clone());
+    let result = e.storage().persistent().get::<StorageKey, u64>(&key);
+    if result.is_some() {
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
+    }
+    result
 }
 
-pub fn get_redemption_request(e: &Env, user: &Address) -> RedemptionRequest {
-    let key = DataKey::RedemptionRequest(user.clone());
+pub fn set_last_deposit_time(e: &Env, user: &Address, timestamp: u64) {
+    let key = StorageKey::LastDepositTime(user.clone());
+    e.storage().persistent().set::<StorageKey, u64>(&key, &timestamp);
     e.storage()
         .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD_USER, LEDGER_BUMP_USER);
-    e.storage()
-        .persistent()
-        .get::<DataKey, RedemptionRequest>(&key)
-        .unwrap_optimized()
-}
-
-pub fn set_redemption_request(e: &Env, user: &Address, request: &RedemptionRequest) {
-    let key = DataKey::RedemptionRequest(user.clone());
-    e.storage().persistent().set::<DataKey, RedemptionRequest>(&key, request);
-    e.storage()
-        .persistent()
-        .extend_ttl(&key, LEDGER_THRESHOLD_USER, LEDGER_BUMP_USER);
-}
-
-pub fn remove_redemption_request(e: &Env, user: &Address) {
-    let key = DataKey::RedemptionRequest(user.clone());
-    e.storage().persistent().remove(&key);
+        .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
 }
