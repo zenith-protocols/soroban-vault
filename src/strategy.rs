@@ -91,9 +91,19 @@ impl StrategyVault {
 }
 
 fn emit_strategy_withdraw(e: &Env, strategy: Address, amount: i128, new_net_impact: i128) {
-    StrategyWithdraw { strategy, amount, new_net_impact }.publish(e);
+    StrategyWithdraw {
+        strategy,
+        amount,
+        new_net_impact,
+    }
+    .publish(e);
 }
 
 fn emit_strategy_deposit(e: &Env, strategy: Address, amount: i128, new_net_impact: i128) {
-    StrategyDeposit { strategy, amount, new_net_impact }.publish(e);
+    StrategyDeposit {
+        strategy,
+        amount,
+        new_net_impact,
+    }
+    .publish(e);
 }

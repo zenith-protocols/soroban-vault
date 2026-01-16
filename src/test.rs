@@ -6,12 +6,18 @@ use soroban_sdk::{
     Address, Env, String, Vec,
 };
 
-use crate::{StrategyVaultContract, VaultContractClient};
+use crate::{StrategyVaultContract, StrategyVaultContractClient};
 
 const SCALAR_7: i128 = 10_000_000;
 const LOCK_TIME: u64 = 300;
 
-fn setup_test<'a>() -> (Env, VaultContractClient<'a>, Address, Address, Address) {
+fn setup_test<'a>() -> (
+    Env,
+    StrategyVaultContractClient<'a>,
+    Address,
+    Address,
+    Address,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -37,7 +43,7 @@ fn setup_test<'a>() -> (Env, VaultContractClient<'a>, Address, Address, Address)
         ),
     );
 
-    let vault = VaultContractClient::new(&env, &vault_address);
+    let vault = StrategyVaultContractClient::new(&env, &vault_address);
     (env, vault, token.address(), user, strategy)
 }
 
@@ -85,7 +91,8 @@ fn test_unlock_after_lock_time() {
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
 
     // Advance past lock time
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
 
     assert!(!vault.is_locked(&user));
     assert!(vault.max_redeem(&user) > 0);
@@ -98,18 +105,21 @@ fn test_new_deposit_resets_lock() {
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
 
     // Advance halfway
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
     assert!(vault.is_locked(&user));
 
     // New deposit resets lock
     vault.deposit(&(500 * SCALAR_7), &user, &user, &user);
 
     // Advance another half - still locked due to reset
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
     assert!(vault.is_locked(&user));
 
     // Advance past new lock
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2 + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2 + 1);
     assert!(!vault.is_locked(&user));
 }
 
@@ -163,7 +173,8 @@ fn test_transfer_after_unlock_succeeds() {
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
 
     // Wait for lock to expire
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
     assert!(!vault.is_locked(&user));
 
     // Transfer should succeed
@@ -198,7 +209,8 @@ fn test_transfer_from_after_unlock_succeeds() {
     vault.approve(&user, &spender, &(500 * SCALAR_7), &1000);
 
     // Wait for lock to expire
-    env.ledger().set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
 
     // transfer_from should succeed
     vault.transfer_from(&spender, &user, &recipient, &(500 * SCALAR_7));

@@ -4,7 +4,9 @@
 //! deposit lock mechanism: users must wait lock_time seconds after their last
 //! deposit before they can withdraw or redeem.
 
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env, MuxedAddress, Vec, String};
+use soroban_sdk::{
+    contract, contractimpl, panic_with_error, Address, Env, MuxedAddress, String, Vec,
+};
 use stellar_tokens::{
     fungible::{Base, FungibleToken},
     vault::{FungibleVault, Vault},
@@ -139,7 +141,13 @@ impl FungibleVault for StrategyVaultContract {
     }
 
     /// Override: Validate lock expired before withdrawal
-    fn withdraw(e: &Env, assets: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
+    fn withdraw(
+        e: &Env,
+        assets: i128,
+        receiver: Address,
+        owner: Address,
+        operator: Address,
+    ) -> i128 {
         if StrategyVault::is_locked(e, &owner) {
             panic_with_error!(e, StrategyVaultError::SharesLocked);
         }

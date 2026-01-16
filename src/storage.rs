@@ -1,5 +1,7 @@
-use soroban_sdk::{contracttype, Address, Env, Vec as SorobanVec, unwrap::UnwrapOptimized};
-use stellar_tokens::fungible::{INSTANCE_EXTEND_AMOUNT, INSTANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT, BALANCE_TTL_THRESHOLD};
+use soroban_sdk::{contracttype, unwrap::UnwrapOptimized, Address, Env, Vec as SorobanVec};
+use stellar_tokens::fungible::{
+    BALANCE_EXTEND_AMOUNT, BALANCE_TTL_THRESHOLD, INSTANCE_EXTEND_AMOUNT, INSTANCE_TTL_THRESHOLD,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -55,7 +57,9 @@ pub fn get_strategy_net_impact(e: &Env, strategy: &Address) -> i128 {
 
 pub fn set_strategy_net_impact(e: &Env, strategy: &Address, net_impact: i128) {
     let key = StorageKey::Strategy(strategy.clone());
-    e.storage().persistent().set::<StorageKey, i128>(&key, &net_impact);
+    e.storage()
+        .persistent()
+        .set::<StorageKey, i128>(&key, &net_impact);
     e.storage()
         .persistent()
         .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
@@ -74,7 +78,9 @@ pub fn get_last_deposit_time(e: &Env, user: &Address) -> Option<u64> {
 
 pub fn set_last_deposit_time(e: &Env, user: &Address, timestamp: u64) {
     let key = StorageKey::LastDepositTime(user.clone());
-    e.storage().persistent().set::<StorageKey, u64>(&key, &timestamp);
+    e.storage()
+        .persistent()
+        .set::<StorageKey, u64>(&key, &timestamp);
     e.storage()
         .persistent()
         .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
