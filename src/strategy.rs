@@ -21,13 +21,6 @@ pub struct StrategyWithdraw {
     pub amount: i128,
 }
 
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StrategyDeposit {
-    #[topic]
-    pub strategy: Address,
-    pub amount: i128,
-}
 pub struct StrategyVault;
 
 impl StrategyVault {
@@ -70,25 +63,4 @@ impl StrategyVault {
         .publish(env);
     }
 
-    /// Strategy deposits tokens to the vault
-    /// This increases total_assets and thus the share price
-    pub fn deposit(env: &Env, strategy: &Address, amount: i128) {
-        if amount <= 0 {
-            panic_with_error!(env, StrategyVaultError::InvalidAmount);
-        }
-        if !storage::get_strategies(env).contains(strategy) {
-            panic_with_error!(env, StrategyVaultError::UnauthorizedStrategy);
-        }
-
-        let asset = Vault::query_asset(env);
-        let token_client = token::Client::new(env, &asset);
-
-        token_client.transfer(strategy, &env.current_contract_address(), &amount);
-
-        StrategyDeposit {
-            strategy: strategy.clone(),
-            amount,
-        }
-        .publish(env);
-    }
 }

@@ -244,19 +244,6 @@ fn test_strategy_withdraw_decreases_assets() {
 }
 
 #[test]
-fn test_strategy_deposit_increases_assets() {
-    let (env, vault, token, user, strategy) = setup_test();
-
-    vault.deposit(&(10_000 * SCALAR_7), &user, &user, &user);
-
-    // Fund strategy and deposit back with profit
-    StellarAssetClient::new(&env, &token).mint(&strategy, &(3000 * SCALAR_7));
-    vault.strategy_deposit(&strategy, &(3000 * SCALAR_7));
-
-    assert_eq!(vault.total_assets(), 13_000 * SCALAR_7);
-}
-
-#[test]
 #[should_panic(expected = "Error(Contract, #422)")] // UnauthorizedStrategy
 fn test_unauthorized_strategy_fails() {
     let (env, vault, _, user, _) = setup_test();
@@ -273,25 +260,4 @@ fn test_zero_strategy_withdraw_fails() {
 
     vault.deposit(&(10_000 * SCALAR_7), &user, &user, &user);
     vault.strategy_withdraw(&strategy, &0);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #420)")] // InvalidAmount
-fn test_zero_strategy_deposit_fails() {
-    let (env, vault, token, user, strategy) = setup_test();
-
-    vault.deposit(&(10_000 * SCALAR_7), &user, &user, &user);
-    StellarAssetClient::new(&env, &token).mint(&strategy, &(1000 * SCALAR_7));
-    vault.strategy_deposit(&strategy, &0);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #422)")] // UnauthorizedStrategy
-fn test_unauthorized_strategy_deposit_fails() {
-    let (env, vault, token, user, _) = setup_test();
-    let fake_strategy = Address::generate(&env);
-
-    vault.deposit(&(10_000 * SCALAR_7), &user, &user, &user);
-    StellarAssetClient::new(&env, &token).mint(&fake_strategy, &(1000 * SCALAR_7));
-    vault.strategy_deposit(&fake_strategy, &(1000 * SCALAR_7));
 }

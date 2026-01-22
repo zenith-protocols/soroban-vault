@@ -62,13 +62,6 @@ impl StrategyVaultContract {
         StrategyVault::withdraw(&e, &strategy, amount);
         storage::extend_instance(&e);
     }
-
-    /// Strategy deposits tokens to the vault (increases total_assets and share price)
-    pub fn strategy_deposit(e: Env, strategy: Address, amount: i128) {
-        strategy.require_auth();
-        StrategyVault::deposit(&e, &strategy, amount);
-        storage::extend_instance(&e);
-    }
 }
 
 // Implement FungibleToken trait for share token functionality
