@@ -5,10 +5,9 @@ use stellar_tokens::fungible::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub enum StorageKey {
+pub enum StrategyStorageKey {
     LockTime,
     Strategies,
-    Strategy(Address),
     LastDepositTime(Address),
 }
 
@@ -21,53 +20,32 @@ pub fn extend_instance(e: &Env) {
 pub fn get_lock_time(e: &Env) -> u64 {
     e.storage()
         .instance()
-        .get::<StorageKey, u64>(&StorageKey::LockTime)
+        .get::<StrategyStorageKey, u64>(&StrategyStorageKey::LockTime)
         .unwrap_optimized()
 }
 
 pub fn set_lock_time(e: &Env, lock_time: &u64) {
     e.storage()
         .instance()
-        .set::<StorageKey, u64>(&StorageKey::LockTime, lock_time);
+        .set::<StrategyStorageKey, u64>(&StrategyStorageKey::LockTime, lock_time);
 }
 
 pub fn get_strategies(e: &Env) -> SorobanVec<Address> {
     e.storage()
         .instance()
-        .get::<StorageKey, SorobanVec<Address>>(&StorageKey::Strategies)
+        .get::<StrategyStorageKey, SorobanVec<Address>>(&StrategyStorageKey::Strategies)
         .unwrap_optimized()
 }
 
 pub fn set_strategies(e: &Env, strategies: &SorobanVec<Address>) {
     e.storage()
         .instance()
-        .set::<StorageKey, SorobanVec<Address>>(&StorageKey::Strategies, strategies);
-}
-
-pub fn get_strategy_net_impact(e: &Env, strategy: &Address) -> i128 {
-    let key = StorageKey::Strategy(strategy.clone());
-    e.storage()
-        .persistent()
-        .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
-    e.storage()
-        .persistent()
-        .get::<StorageKey, i128>(&key)
-        .unwrap_or(0)
-}
-
-pub fn set_strategy_net_impact(e: &Env, strategy: &Address, net_impact: i128) {
-    let key = StorageKey::Strategy(strategy.clone());
-    e.storage()
-        .persistent()
-        .set::<StorageKey, i128>(&key, &net_impact);
-    e.storage()
-        .persistent()
-        .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);
+        .set::<StrategyStorageKey, SorobanVec<Address>>(&StrategyStorageKey::Strategies, strategies);
 }
 
 pub fn get_last_deposit_time(e: &Env, user: &Address) -> Option<u64> {
-    let key = StorageKey::LastDepositTime(user.clone());
-    let result = e.storage().persistent().get::<StorageKey, u64>(&key);
+    let key = StrategyStorageKey::LastDepositTime(user.clone());
+    let result = e.storage().persistent().get::<StrategyStorageKey, u64>(&key);
     if result.is_some() {
         e.storage()
             .persistent()
@@ -77,10 +55,10 @@ pub fn get_last_deposit_time(e: &Env, user: &Address) -> Option<u64> {
 }
 
 pub fn set_last_deposit_time(e: &Env, user: &Address, timestamp: u64) {
-    let key = StorageKey::LastDepositTime(user.clone());
+    let key = StrategyStorageKey::LastDepositTime(user.clone());
     e.storage()
         .persistent()
-        .set::<StorageKey, u64>(&key, &timestamp);
+        .set::<StrategyStorageKey, u64>(&key, &timestamp);
     e.storage()
         .persistent()
         .extend_ttl(&key, BALANCE_TTL_THRESHOLD, BALANCE_EXTEND_AMOUNT);

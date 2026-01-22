@@ -55,8 +55,9 @@ fn test_deposit_sets_lock() {
 
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
 
-    assert!(vault.is_locked(&user));
-    assert_eq!(vault.max_redeem(&user), 0);
+    assert!(vault.lock_duration(&user) > 0);
+    // Lock only blocks transfers, not withdrawals
+    assert!(vault.max_redeem(&user) > 0);
 }
 
 #[test]
@@ -65,16 +66,17 @@ fn test_mint_sets_lock() {
 
     vault.mint(&(1000 * SCALAR_7), &user, &user, &user);
 
-    assert!(vault.is_locked(&user));
+    assert!(vault.lock_duration(&user) > 0);
 }
 
 #[test]
-fn test_max_withdraw_returns_zero_when_locked() {
+fn test_max_withdraw_returns_value_when_locked() {
     let (_env, vault, _, user, _) = setup_test();
 
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
 
-    assert_eq!(vault.max_withdraw(&user), 0);
+    // Lock only blocks transfers, not withdrawals
+    assert!(vault.max_withdraw(&user) > 0);
 }
 
 #[test]
@@ -94,7 +96,7 @@ fn test_unlock_after_lock_time() {
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
 
-    assert!(!vault.is_locked(&user));
+    assert_eq!(vault.lock_duration(&user), 0);
     assert!(vault.max_redeem(&user) > 0);
 }
 
@@ -107,7 +109,7 @@ fn test_new_deposit_resets_lock() {
     // Advance halfway
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
-    assert!(vault.is_locked(&user));
+    assert!(vault.lock_duration(&user) > 0);
 
     // New deposit resets lock
     vault.deposit(&(500 * SCALAR_7), &user, &user, &user);
@@ -115,41 +117,47 @@ fn test_new_deposit_resets_lock() {
     // Advance another half - still locked due to reset
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2);
-    assert!(vault.is_locked(&user));
+    assert!(vault.lock_duration(&user) > 0);
 
     // Advance past new lock
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + LOCK_TIME / 2 + 1);
-    assert!(!vault.is_locked(&user));
+    assert_eq!(vault.lock_duration(&user), 0);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #421)")] // SharesLocked
-fn test_redeem_while_locked_fails() {
+fn test_redeem_while_locked_succeeds() {
     let (_, vault, _, user, _) = setup_test();
 
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
-    vault.redeem(&(500 * SCALAR_7), &user, &user, &user);
+    assert!(vault.lock_duration(&user) > 0);
+
+    // Redeem succeeds - lock only blocks transfers, not withdrawals
+    let assets = vault.redeem(&(500 * SCALAR_7), &user, &user, &user);
+    assert!(assets > 0);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #421)")] // SharesLocked
-fn test_withdraw_while_locked_fails() {
+fn test_withdraw_while_locked_succeeds() {
     let (_, vault, _, user, _) = setup_test();
 
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
-    vault.withdraw(&(500 * SCALAR_7), &user, &user, &user);
+    assert!(vault.lock_duration(&user) > 0);
+
+    // Withdraw succeeds - lock only blocks transfers, not withdrawals
+    let shares = vault.withdraw(&(500 * SCALAR_7), &user, &user, &user);
+    assert!(shares > 0);
 }
 
-// ==================== Transfer Exploit Prevention ====================
+// ==================== Transfer Lock Tests ====================
 
 #[test]
 fn test_user_without_deposit_history_is_not_locked() {
     let (env, vault, _, _user, _) = setup_test();
     let recipient = Address::generate(&env);
 
-    // User who never deposited is NOT locked (received shares via transfer)
-    assert!(!vault.is_locked(&recipient));
+    // User who never deposited is not locked (e.g. received shares via transfer)
+    assert_eq!(vault.lock_duration(&recipient), 0);
 }
 
 #[test]
@@ -159,7 +167,7 @@ fn test_transfer_while_locked_fails() {
     let recipient = Address::generate(&env);
 
     vault.deposit(&(1000 * SCALAR_7), &user, &user, &user);
-    assert!(vault.is_locked(&user));
+    assert!(vault.lock_duration(&user) > 0);
 
     // Transfer should fail while locked
     vault.transfer(&user, &recipient, &(500 * SCALAR_7));
@@ -175,13 +183,13 @@ fn test_transfer_after_unlock_succeeds() {
     // Wait for lock to expire
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + LOCK_TIME + 1);
-    assert!(!vault.is_locked(&user));
+    assert_eq!(vault.lock_duration(&user), 0);
 
     // Transfer should succeed
     vault.transfer(&user, &recipient, &(500 * SCALAR_7));
 
-    // Recipient can immediately redeem (no deposit history = not locked)
-    assert!(!vault.is_locked(&recipient));
+    // Recipient can immediately redeem (no deposit history)
+    assert_eq!(vault.lock_duration(&recipient), 0);
     assert!(vault.max_redeem(&recipient) > 0);
 }
 
@@ -215,8 +223,8 @@ fn test_transfer_from_after_unlock_succeeds() {
     // transfer_from should succeed
     vault.transfer_from(&spender, &user, &recipient, &(500 * SCALAR_7));
 
-    // Recipient can immediately redeem
-    assert!(!vault.is_locked(&recipient));
+    // Recipient can immediately redeem (no deposit history)
+    assert_eq!(vault.lock_duration(&recipient), 0);
     assert!(vault.max_redeem(&recipient) > 0);
 }
 
@@ -233,7 +241,6 @@ fn test_strategy_withdraw_decreases_assets() {
     vault.strategy_withdraw(&strategy, &(2000 * SCALAR_7));
 
     assert_eq!(vault.total_assets(), initial_assets - 2000 * SCALAR_7);
-    assert_eq!(vault.net_impact(&strategy), -(2000 * SCALAR_7));
 }
 
 #[test]
@@ -247,7 +254,6 @@ fn test_strategy_deposit_increases_assets() {
     vault.strategy_deposit(&strategy, &(3000 * SCALAR_7));
 
     assert_eq!(vault.total_assets(), 13_000 * SCALAR_7);
-    assert_eq!(vault.net_impact(&strategy), 3000 * SCALAR_7);
 }
 
 #[test]

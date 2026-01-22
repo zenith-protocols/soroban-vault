@@ -1,21 +1,16 @@
-//! Vault Contract - ERC-4626 compliant tokenized vault with deposit-based locking
+//! Vault Contract - ERC-4626 compliant tokenized vault with transfer locking
 //!
-//! This contract implements the OpenZeppelin FungibleVault trait with a simple
-//! deposit lock mechanism: users must wait lock_time seconds after their last
-//! deposit before they can withdraw or redeem.
+//! This contract implements the OpenZeppelin FungibleVault trait with a transfer
+//! lock mechanism: depositors cannot transfer their shares until lock_time seconds
+//! after their last deposit. Withdrawals and redemptions are always allowed.
 
-use soroban_sdk::{
-    contract, contractimpl, panic_with_error, Address, Env, MuxedAddress, String, Vec,
-};
+use soroban_sdk::{contract, contractimpl, Address, Env, MuxedAddress, String, Vec};
 use stellar_tokens::{
     fungible::{Base, FungibleToken},
     vault::{FungibleVault, Vault},
 };
 
-use crate::{
-    storage,
-    strategy::{StrategyVault, StrategyVaultError},
-};
+use crate::{storage, strategy::StrategyVault};
 
 #[contract]
 pub struct StrategyVaultContract;
@@ -30,7 +25,7 @@ impl StrategyVaultContract {
     /// * `asset` - Address of the underlying token contract
     /// * `decimals_offset` - Virtual offset for inflation attack protection (0-10)
     /// * `strategies` - List of authorized strategy contract addresses
-    /// * `lock_time` - Delay in seconds before redemptions/withdrawals can be executed
+    /// * `lock_time` - Delay in seconds before depositors can transfer their shares
     pub fn __constructor(
         e: Env,
         name: String,
@@ -47,17 +42,6 @@ impl StrategyVaultContract {
         // Initialize custom storage
         storage::set_lock_time(&e, &lock_time);
         storage::set_strategies(&e, &strategies);
-
-        // Initialize strategies
-        for strategy_addr in strategies.iter() {
-            storage::set_strategy_net_impact(&e, &strategy_addr, 0);
-        }
-    }
-
-    /// Returns the net impact (cumulative P&L) for a strategy
-    pub fn net_impact(e: Env, strategy: Address) -> i128 {
-        storage::extend_instance(&e);
-        storage::get_strategy_net_impact(&e, &strategy)
     }
 
     /// Returns the lock time in seconds
@@ -66,11 +50,10 @@ impl StrategyVaultContract {
         storage::get_lock_time(&e)
     }
 
-    /// Returns true if user's shares are currently locked
-    /// Users with no deposit history are considered locked (prevents transfer exploit)
-    pub fn is_locked(e: Env, user: Address) -> bool {
+    /// Returns seconds remaining until user's shares unlock, or 0 if not locked
+    pub fn lock_duration(e: Env, user: Address) -> u64 {
         storage::extend_instance(&e);
-        StrategyVault::is_locked(&e, &user)
+        StrategyVault::get_lock_time(&e, &user)
     }
 
     /// Strategy withdraws tokens from the vault (decreases total_assets and share price)
@@ -93,19 +76,15 @@ impl StrategyVaultContract {
 impl FungibleToken for StrategyVaultContract {
     type ContractType = Vault;
 
-    /// Override: Block transfer if sender is locked
+    /// Override: Depositors cannot transfer until lock expires
     fn transfer(e: &Env, from: Address, to: MuxedAddress, amount: i128) {
-        if StrategyVault::is_locked(e, &from) {
-            panic_with_error!(e, StrategyVaultError::SharesLocked);
-        }
+        StrategyVault::require_unlocked(e, &from);
         Base::transfer(e, &from, &to, amount);
     }
 
-    /// Override: Block transfer_from if sender is locked
+    /// Override: Depositors cannot transfer until lock expires
     fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, amount: i128) {
-        if StrategyVault::is_locked(e, &from) {
-            panic_with_error!(e, StrategyVaultError::SharesLocked);
-        }
+        StrategyVault::require_unlocked(e, &from);
         Base::transfer_from(e, &spender, &from, &to, amount);
     }
 }
@@ -130,17 +109,12 @@ impl FungibleVault for StrategyVaultContract {
         assets
     }
 
-    /// Override: Validate lock expired before redemption
     fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
-        if StrategyVault::is_locked(e, &owner) {
-            panic_with_error!(e, StrategyVaultError::SharesLocked);
-        }
         let assets = Vault::redeem(e, shares, receiver, owner, operator);
         storage::extend_instance(e);
         assets
     }
 
-    /// Override: Validate lock expired before withdrawal
     fn withdraw(
         e: &Env,
         assets: i128,
@@ -148,29 +122,9 @@ impl FungibleVault for StrategyVaultContract {
         owner: Address,
         operator: Address,
     ) -> i128 {
-        if StrategyVault::is_locked(e, &owner) {
-            panic_with_error!(e, StrategyVaultError::SharesLocked);
-        }
         let shares = Vault::withdraw(e, assets, receiver, owner, operator);
         storage::extend_instance(e);
         shares
     }
 
-    /// Override: Returns 0 if locked, otherwise returns user's full redeemable balance
-    fn max_redeem(e: &Env, owner: Address) -> i128 {
-        if StrategyVault::is_locked(e, &owner) {
-            0
-        } else {
-            Vault::max_redeem(e, owner)
-        }
-    }
-
-    /// Override: Returns 0 if locked, otherwise returns value of user's shares
-    fn max_withdraw(e: &Env, owner: Address) -> i128 {
-        if StrategyVault::is_locked(e, &owner) {
-            0
-        } else {
-            Vault::max_withdraw(e, owner)
-        }
-    }
 }
